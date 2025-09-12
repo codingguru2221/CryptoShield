@@ -1,5 +1,5 @@
 # 🔐 CryptoShield - Pendrive-Based Password Manager
-## 🏆 **HACKATHON WINNER PROJECT** 🏆
+## 🏆 **A HACKATHON PROJECT** 🏆
 
 A **revolutionary password management system** that redefines digital security by making **physical hardware the key to your digital vault**. This hackathon project demonstrates **innovative cybersecurity solutions** that protect user credentials through **hardware-based authentication** and **real-time security monitoring**.
 

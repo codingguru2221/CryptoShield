@@ -2,10 +2,19 @@ package com.codex.passwordmanager;
 
 import javax.swing.filechooser.FileSystemView;
 import java.io.File;
+import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.DosFileAttributeView;
 
 public class PendriveDetector {
+    // Name of the hidden authorization token file that must exist on the legit USB
+    public static final String AUTH_TOKEN_FILENAME = ".cryptoshield.key";
+    // Alternate non-hidden filename accepted as well (helps when Windows adds extensions)
+    public static final String AUTH_TOKEN_ALT_FILENAME = "cryptoshield.key";
+
     /**
      * Uses Windows WMIC to detect USB pendrives (drivetype=2).
      * Returns a list of drive letters for detected pendrives.
@@ -144,6 +153,92 @@ public class PendriveDetector {
         }
         
         return allPendrives;
+    }
+
+    /**
+     * Checks whether the given drive root contains the CryptoShield authorization token file.
+     * If the hidden file exists at the root, we consider the drive authorized.
+     */
+    public static boolean isAuthorizedDrive(File driveRoot) {
+        if (driveRoot == null) return false;
+        try {
+            // Accept either hidden or non-hidden token name
+            File tokenHidden = new File(driveRoot, AUTH_TOKEN_FILENAME);
+            if (tokenHidden.exists() && tokenHidden.isFile()) return true;
+            File tokenAlt = new File(driveRoot, AUTH_TOKEN_ALT_FILENAME);
+            if (tokenAlt.exists() && tokenAlt.isFile()) return true;
+            // Also accept if a common .txt suffix was accidentally added by editors
+            File tokenHiddenTxt = new File(driveRoot, AUTH_TOKEN_FILENAME + ".txt");
+            if (tokenHiddenTxt.exists() && tokenHiddenTxt.isFile()) return true;
+            File tokenAltTxt = new File(driveRoot, AUTH_TOKEN_ALT_FILENAME + ".txt");
+            if (tokenAltTxt.exists() && tokenAltTxt.isFile()) return true;
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Returns the paths of pendrives that are authorized (contain the token file).
+     */
+    public static List<String> getAuthorizedPendrivePaths() {
+        List<String> authorized = new ArrayList<>();
+        List<String> candidates = getAllPendrivePaths();
+        for (String path : candidates) {
+            try {
+                File root = new File(path);
+                if (isAuthorizedDrive(root)) {
+                    authorized.add(path);
+                }
+            } catch (Exception ignored) {}
+        }
+        return authorized;
+    }
+
+    /**
+     * Creates the authorization token on the given drive. Tries hidden ".cryptoshield.key" first,
+     * then falls back to "cryptoshield.key" if needed. Attempts to set hidden attribute on Windows.
+     */
+    public static boolean createAuthorizationToken(File driveRoot) {
+        if (driveRoot == null || !driveRoot.exists()) return false;
+        try {
+            // If already authorized, nothing to do
+            if (isAuthorizedDrive(driveRoot)) return true;
+
+            // Prefer hidden name
+            File tokenHidden = new File(driveRoot, AUTH_TOKEN_FILENAME);
+            File tokenAlt = new File(driveRoot, AUTH_TOKEN_ALT_FILENAME);
+
+            File chosen = tokenHidden;
+            try {
+                if (!tokenHidden.exists()) {
+                    try (FileWriter fw = new FileWriter(tokenHidden)) {
+                        fw.write("authorized\n");
+                    }
+                }
+            } catch (Exception e) {
+                // fallback to non-hidden name
+                chosen = tokenAlt;
+                if (!tokenAlt.exists()) {
+                    try (FileWriter fw = new FileWriter(tokenAlt)) {
+                        fw.write("authorized\n");
+                    }
+                }
+            }
+
+            // Try to mark as hidden on Windows for cleanliness
+            try {
+                Path p = chosen.toPath();
+                DosFileAttributeView view = Files.getFileAttributeView(p, DosFileAttributeView.class);
+                if (view != null) {
+                    view.setHidden(true);
+                }
+            } catch (Exception ignore) {}
+
+            return chosen.exists();
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
 

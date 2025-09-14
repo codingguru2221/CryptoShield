@@ -110,7 +110,7 @@ public class PasswordManagerUI extends JFrame {
         JPanel headerPanel = new GradientPanel(PRIMARY_COLOR, new Color(39, 55, 70));
         headerPanel.setBorder(new EmptyBorder(20, 25, 20, 25));
         
-        JLabel titleLabel = new JLabel("🔐 Pendrive Password Manager");
+        JLabel titleLabel = new JLabel("CryptoShield Pendrive Password Manager");
         titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 28));
         titleLabel.setForeground(Color.WHITE);
         titleLabel.setBorder(new EmptyBorder(0, 0, 5, 0));
@@ -123,7 +123,7 @@ public class PasswordManagerUI extends JFrame {
         JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         statusPanel.setOpaque(false);
         
-        JLabel statusIndicator = new JLabel("🟢 Online");
+        JLabel statusIndicator = new JLabel(" Online");
         statusIndicator.setFont(new Font("Segoe UI", Font.BOLD, 12));
         statusIndicator.setForeground(new Color(230, 230, 230));
         statusIndicator.setToolTipText("Pendrive connection status");
@@ -666,19 +666,50 @@ public class PasswordManagerUI extends JFrame {
     }
 
     private void detectPendrive() {
-        List<String> pendrives = PendriveDetector.getAllPendrivePaths();
-        if (!pendrives.isEmpty()) {
-            pendriveRoot = new File(pendrives.get(0));
-            statusLabel.setText("✅ Pendrive detected: " + pendriveRoot.getAbsolutePath());
+        List<String> authorized = PendriveDetector.getAuthorizedPendrivePaths();
+        if (!authorized.isEmpty()) {
+            pendriveRoot = new File(authorized.get(0));
+            statusLabel.setText("✅ Authorized pendrive detected: " + pendriveRoot.getAbsolutePath());
         } else {
-            statusLabel.setText("❌ No pendrive detected! Please insert your pendrive.");
-            JOptionPane.showMessageDialog(this, 
-                "No pendrive detected!\n\nPlease ensure:\n" +
-                "1. A USB pendrive is connected to your computer\n" +
-                "2. The pendrive is properly recognized by Windows\n" +
-                "3. The pendrive has a drive letter assigned", 
-                "Pendrive Not Detected", 
-                JOptionPane.ERROR_MESSAGE);
+            // If there are pendrives but none authorized, guide the user
+            List<String> any = PendriveDetector.getAllPendrivePaths();
+            if (!any.isEmpty()) {
+                statusLabel.setText("⚠️ Unauthorized USB detected.");
+
+                int choice = JOptionPane.showConfirmDialog(this,
+                    "A USB drive was detected but it is not authorized.\n\n" +
+                    "If this is your first time, do you want to set up this USB now?\n\n" +
+                    "This will create a small hidden key file on the USB.",
+                    "First-time Setup",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+
+                if (choice == JOptionPane.YES_OPTION) {
+                    // Attempt to create token on the first detected removable drive
+                    File candidate = new File(any.get(0));
+                    boolean created = PendriveDetector.createAuthorizationToken(candidate);
+                    if (created) {
+                        pendriveRoot = candidate;
+                        statusLabel.setText("✅ USB set up and authorized: " + pendriveRoot.getAbsolutePath());
+                    } else {
+                        statusLabel.setText("❌ Failed to set up USB. Please try again.");
+                        JOptionPane.showMessageDialog(this,
+                            "Could not complete first-time setup.\n\n" +
+                            "Ensure the USB is writable and not write-protected.",
+                            "Setup Failed",
+                            JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            } else {
+                statusLabel.setText("❌ No pendrive detected! Please insert your USB.");
+                JOptionPane.showMessageDialog(this, 
+                    "No pendrive detected!\n\nPlease ensure:\n" +
+                    "1. Your USB drive is connected to your computer\n" +
+                    "2. The USB is properly recognized by Windows\n" +
+                    "3. The USB has a drive letter assigned", 
+                    "Pendrive Not Detected", 
+                    JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
 
@@ -1093,24 +1124,26 @@ public class PasswordManagerUI extends JFrame {
 
     private void startPendriveMonitoring() {
         Timer pendriveMonitor = new Timer(2000, e -> {
-            List<String> currentPendrives = PendriveDetector.getAllPendrivePaths();
-            boolean pendriveStillConnected = false;
-            
+            boolean pendriveStillAuthorized = false;
             if (pendriveRoot != null) {
-                for (String pendrivePath : currentPendrives) {
-                    if (pendrivePath.equals(pendriveRoot.getAbsolutePath())) {
-                        pendriveStillConnected = true;
-                        break;
+                // Check that drive still exists and still has the token
+                if (pendriveRoot.exists() && PendriveDetector.isAuthorizedDrive(pendriveRoot)) {
+                    // also confirm it remains listed as a removable drive
+                    List<String> current = PendriveDetector.getAllPendrivePaths();
+                    for (String path : current) {
+                        if (path.equals(pendriveRoot.getAbsolutePath())) {
+                            pendriveStillAuthorized = true;
+                            break;
+                        }
                     }
                 }
             }
-            
-            if (!pendriveStillConnected && pendriveRoot != null) {
-                // Pendrive was removed
+
+            if (!pendriveStillAuthorized && pendriveRoot != null) {
                 JOptionPane.showMessageDialog(this,
-                    "Pendrive has been removed!\n\n" +
+                    "Authorized USB was removed or authorization token missing!\n\n" +
                     "The application will now close to protect your data.",
-                    "Pendrive Removed",
+                    "USB Removed",
                     JOptionPane.WARNING_MESSAGE);
                 System.exit(0);
             }
